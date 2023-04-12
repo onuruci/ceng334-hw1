@@ -23,7 +23,6 @@ int main( int argc, char **argv )
   int obs_counter = 0, bomber_counter = 0;
   vector<vector<int>> map2d;
   bool info_read = false;
-  char* argss[3];
   
   vector<obsd> obstacles;
   vector<bomber_data> bombers;
@@ -93,25 +92,47 @@ int main( int argc, char **argv )
           printf("parent\n");
         } else {
           // child
+          char **argv = (char **) malloc(new_bomber.arg_count * sizeof(char *));
+
+          argv[0] = (char  * )malloc(4 * sizeof(char));
+          argv[1] = (char  * )malloc(4 * sizeof(char));
+          argv[2] = (char  * )malloc(4 * sizeof(char));
+          argv[3] = (char  * )malloc(4 * sizeof(char));
+          iss1 >> argv[0];
+          iss1 >> argv[1];
+          iss1 >> argv[2];
+          iss1 >> argv[3];
+          argv[4] = NULL;
+
           new_bomber.pid = p;
           bombers.push_back(new_bomber);
           
-          dup2(fd[0], 0);
-          dup2(fd[1], 1);
 
+          printf("child \n" );
+          
+
+          dup2(fd[0], 0);
           close(fd[0]);
+          dup2(fd[1], 1);
+          
           close(fd[1]);
 
-          //getline( cin, input );
-          printf("%s\n", input.c_str());
-          printf("child\n");
-          char *pa;
-          iss1 >> pa;
-          iss1 >> argss[0];
-          iss1 >> argss[1];
-          iss1 >> argss[2];
-          //char *arg[] = {"1000","20", "20"}; 
-          execv("./bomber_inek", argss);
+
+          
+          printf("asdd\n");
+
+
+          // char *pa;
+          // iss1 >> pa;
+          // iss1 >> argss[0];
+          // iss1 >> argss[1];
+          // iss1 >> argss[2];
+          printf("asdasdasdasd \n");
+          if (execvp("./bomber_inek", argv) == -1) {
+            char errmsg[64];
+            snprintf( errmsg, sizeof(errmsg), "exec failed" );
+            perror( errmsg );
+          }
         }
 
 
@@ -141,7 +162,7 @@ int main( int argc, char **argv )
       }
       
     }
-    printf("uncaught\n");
+    printf("uncaut\n");
 
     usleep(100);
   }
