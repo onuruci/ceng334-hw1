@@ -5,6 +5,8 @@
 #include <iostream>
 #include <vector>
 #include <sstream>
+#include <unistd.h>
+#include <signal.h>
 
 using namespace std;
 
@@ -14,6 +16,7 @@ struct bomber_data {
   int arg_count;
   bool alive;
   int pid;
+  bool won;
 };
 
 struct bomb_struct {
@@ -26,8 +29,10 @@ struct bomb_struct {
 };
 
 typedef struct object_map_data {
-  bool set;
   ot type;
+  bool alive;
+  bool winner;
+  int duranz;
 } ob;
 
 
@@ -35,26 +40,54 @@ ob* get_map_item(ob **map, int x, int y) {
   return map[y]+x;
 }
 
-void set_map_item(ob **map, int x, int y, ot obj_type) {
+void set_map_item(ob **map, int x, int y, ot obj_type, int d = -1) {
   ob new_item;
   new_item.type = obj_type;
-  new_item.set = true;
+  new_item.alive = true;
+  new_item.winner = false;
+  new_item.duranz = d;
   map[y][x] = new_item;
 }
 
-void update_map_item(ob **map, int x, int y, ot obj_type, bool set) {
+void update_map_item(ob **map, int x, int y, ot obj_type, bool alive) {
   ob new_item;
   new_item.type = obj_type;
-  new_item.set = set;
+  new_item.alive = alive;
   map[y][x] = new_item;
 }
 
 void move_map_item(ob **map, int x, int y, ot obj_type, int xn, int yn) {
-  map[y][x].set = false;
+  map[y][x].alive = false;
+  map[y][x].winner = false;
   ob new_item;
   new_item.type = obj_type;
-  new_item.set = true;
+  new_item.alive = true;
+  new_item.winner = false;
   map[yn][xn] = new_item;
+}
+
+void set_game_winner(ob **map, int w, int h) {
+  
+  for(int i = 0; i < h; i++) {
+    for(int j = 0; j < w; j++) {
+      if(map[i][j].alive) {
+        map[i][j].winner = true;
+      }
+    }
+  }
+}
+
+void kill_bomber(ob ** gamemap, int currx, int curry, int w, int h, int *bomber_count) {
+  ob * curr_obj = get_map_item(gamemap, currx, curry);
+  
+  if(curr_obj->alive) {
+    curr_obj->alive = false;
+    (*bomber_count)--;
+
+    if((*bomber_count) == 1) {
+      set_game_winner(gamemap, w, h);
+    }
+  }
 }
 
 
@@ -64,6 +97,8 @@ int main( int argc, char **argv )
   int obs_counter = 0, bomber_counter = 0;
   vector<vector<int>> map2d;
   ob **gamemap;
+  ob **bombmap;
+  ob **obsmap;
   bool info_read = false;
   
   vector<obsd> obstacles;
@@ -102,6 +137,16 @@ int main( int argc, char **argv )
           gamemap[i] = (ob *) malloc(map_w * sizeof(ob));
         }
 
+        bombmap = (ob **) malloc(map_h * sizeof(ob *));
+        for(int i = 0; i < map_h; i++) {
+          bombmap[i] = (ob *) malloc(map_w * sizeof(ob));
+        }
+
+        obsmap = (ob **) malloc(map_h * sizeof(ob *));
+        for(int i = 0; i < map_h; i++) {
+          obsmap[i] = (ob *) malloc(map_w * sizeof(ob));
+        }
+
         printf("Values read for initial update:  %d %d %d %d\n", map_w, map_h, obs_count, bomber_count);
       } else if(obs_counter < obs_count) {
         /// Handle obs
@@ -113,8 +158,10 @@ int main( int argc, char **argv )
         iss >> new_obstacle.position.y;
         iss >> new_obstacle.remaining_durability;
 
+        set_map_item(obsmap, new_obstacle.position.x, new_obstacle.position.y, OBSTACLE, new_obstacle.remaining_durability);
+
         obs_counter++;
-        printf("obs entered\n");
+        printf("obs entered %d\n", new_obstacle.remaining_durability);
       } else if(bomber_counter < bomber_count) {
         // Read bomber values
         istringstream iss ( input );
@@ -178,9 +225,11 @@ int main( int argc, char **argv )
   }
 
   
-  while(true) {
-
+  while(!bombers.empty() || !bombs.empty() ) {
     for(auto it = bombs.begin(); it != bombs.end(); it++) {
+      if(bombs.size() < 1) {
+        break;
+      }
       im m;
       imp new_imp;
       fd_set rfd;
@@ -200,13 +249,64 @@ int main( int argc, char **argv )
 
             new_imp.m = &m;
             new_imp.pid = (*it).pid;
-            printf("MFcker just Exploded \n");
             print_output(&new_imp, NULL, NULL, NULL);
+
+            
             
             // Damage others
 
+            int miny = (*it).position.y - (*it).interval;
+            int minx = (*it).position.x - (*it).interval;
+            int maxy = (*it).position.y + (*it).interval;
+            int maxx = (*it).position.x + (*it).interval;
+
+            if(miny < 0) {
+              miny = 0;
+            }
+            
+            if(minx < 0) {
+              minx = 0;
+            }
+
+            if(maxy >= map_h) {
+              maxy = map_h -1;
+            }
+
+            if(maxx >= map_w) {
+              maxx = map_w -1;
+            }
+
+            // check for bombers and obstacles
+            int currx = (*it).position.x, curry = (*it).position.y;
+            kill_bomber(gamemap, currx, curry, map_w, map_h, &bomber_count);
+            for(int i = 1; i <= (*it).radius; i++) {
+
+              if(currx + i <= maxx) {
+                kill_bomber(gamemap, currx + i, curry, map_w, map_h, &bomber_count);
+              }
+
+              if(currx - i >= minx) {
+                kill_bomber(gamemap, currx - i, curry, map_w, map_h, &bomber_count);
+              }
+
+              if(curry + i <= maxy) {
+                kill_bomber(gamemap, currx, curry + i, map_w, map_h, &bomber_count);
+              }
+
+              if(curry - i >= miny) {
+                kill_bomber(gamemap, currx, curry - i, map_w, map_h, &bomber_count);
+              }
+            }
+
             // Remove Bomb
-            //update_map_item(gamemap, (*it).position.x, (*it).position.y, BOMB, false);
+            
+            update_map_item(bombmap, (*it).position.x, (*it).position.y, BOMB, false);
+            
+            kill((*it).pid, 9);
+            bombs.erase(it);
+            it--;
+            continue;
+
           }
         }
       }
@@ -214,6 +314,9 @@ int main( int argc, char **argv )
     }
     
     for( auto it = bombers.begin(); it != bombers.end(); it++) {
+      if(bombers.size() < 1) {
+        break;
+      }
       im m;
       imp new_imp;
       fd_set rfd;
@@ -241,6 +344,51 @@ int main( int argc, char **argv )
         int object_count = 0, obj_arr_size = 50, targetx, targety;
         od *object_arr = (od *)malloc(25 * sizeof(od));
 
+        // Check if bomber is dead or won
+
+        ob * bomber_to_get = get_map_item(gamemap, (*it).position.x, (*it).position.y);
+
+        if(bomber_to_get->winner) {
+          bomber_to_get->alive = false;
+
+          message.type = BOMBER_WIN;
+
+          sending_message.pid = (*it).pid;
+          sending_message.m = &message;
+
+          print_output(NULL, &sending_message, NULL, NULL);
+            
+          send_message((*it).fd1, &message);
+
+          kill((*it).pid, 9);
+          bombers.erase(it);
+          it--;
+          
+          delete [] object_arr;
+
+          continue;
+        }
+
+        if(!bomber_to_get->alive) {
+          message.type = BOMBER_DIE;
+
+          sending_message.pid = (*it).pid;
+          sending_message.m = &message;
+
+          print_output(NULL, &sending_message, NULL, NULL);
+            
+          send_message((*it).fd1, &message);
+
+          kill((*it).pid, 9);
+          bombers.erase(it);
+          it--;
+          
+          delete [] object_arr;
+
+          continue;
+        }
+
+        if(bomber_to_get->alive && !bomber_to_get->winner) {
         switch(m.type) {
           case(BOMBER_START):
             message.type = BOMBER_LOCATION;
@@ -283,12 +431,32 @@ int main( int argc, char **argv )
               maxx = map_w -1;
             }
 
+            /// Bomber map check
             for(int xi = minx; xi <= maxx; xi++){
               for(int yi= miny; yi <= maxy; yi++) {
-                printf("Xİ: %d, Yİ: %d\n", xi, yi);
                 ob *map_item = get_map_item(gamemap, xi, yi);
-                if(map_item->set) {
-                  printf("SET\n");
+                if(map_item->alive) {
+                  if(!(xi == (*it).position.x && yi == (*it).position.y)) {
+                    od obj_to_add;
+                    obj_to_add.type = map_item->type;
+                    obj_to_add.position.x = xi;
+                    obj_to_add.position.y = yi;
+                    object_arr[object_count] = obj_to_add;
+                    object_count++;
+                  }
+                }
+              }
+            }
+
+
+            /// Obstacle map check
+
+
+            /// Bomb map check
+            for(int xi = minx; xi <= maxx; xi++){
+              for(int yi= miny; yi <= maxy; yi++) {
+                ob *map_item = get_map_item(bombmap, xi, yi);
+                if(map_item->alive) {
                   od obj_to_add;
                   obj_to_add.type = map_item->type;
                   obj_to_add.position.x = xi;
@@ -308,6 +476,9 @@ int main( int argc, char **argv )
 
             break;
           case(BOMBER_MOVE) :
+
+            // Check if bomber is dead or won
+
             targetx = m.data.target_position.x;
             targety = m.data.target_position.y;
 
@@ -349,6 +520,7 @@ int main( int argc, char **argv )
 
             break;
           case(BOMBER_PLANT):
+            // Check if bomber is dead or won
 
             int p, fd[2];
             PIPE(fd);
@@ -363,15 +535,16 @@ int main( int argc, char **argv )
               new_bomb.radius = m.data.bomb_info.radius;
               new_bomb.position.x = (*it).position.x;
               new_bomb.position.y = (*it).position.y;
+              new_bomb.pid = p;
               bombs.push_back(new_bomb);
-              set_map_item(gamemap, (*it).position.x, (*it).position.y, BOMB);
+              set_map_item(bombmap, (*it).position.x, (*it).position.y, BOMB);
               // parent
               
 
               message.type = BOMBER_PLANT_RESULT;
               message.data.planted = 1;
 
-              sending_message.pid = (*it).pid;
+              sending_message.pid = p;
               sending_message.m = &message;
 
               print_output(NULL, &sending_message, NULL, NULL);
@@ -411,7 +584,7 @@ int main( int argc, char **argv )
             break;
           default:
             break;
-        }
+        }}
         delete [] object_arr;
 
       }
@@ -423,4 +596,14 @@ int main( int argc, char **argv )
     delete [] gamemap[i];
   }
   delete [] gamemap;
+
+  for(int i = 0; i < map_h; i++) {
+    delete [] bombmap[i];
+  }
+  delete [] bombmap;
+
+  for(int i = 0; i < map_h; i++) {
+    delete [] obsmap[i];
+  }
+  delete [] obsmap;
 }
