@@ -90,6 +90,19 @@ void kill_bomber(ob ** gamemap, int currx, int curry, int w, int h, int *bomber_
   }
 }
 
+void damage_obstacle(ob **obsmap, int currx, int curry){
+  ob * curr_obj = get_map_item(obsmap, currx, curry);
+
+  if(curr_obj->alive) {
+    if(curr_obj->duranz > -1) {
+      curr_obj->duranz--;
+      if(curr_obj->duranz == 0) {
+        curr_obj->alive=false;
+      }
+    }
+  } 
+}
+
 
 int main( int argc, char **argv )
 {
@@ -177,9 +190,6 @@ int main( int argc, char **argv )
         new_bomber.fd0 = fd[0];
         new_bomber.fd1 = fd[1];
         new_bomber.alive = true;
-
-        
-
 
         getline( cin, input );
         istringstream iss1 ( input );
@@ -283,18 +293,22 @@ int main( int argc, char **argv )
 
               if(currx + i <= maxx) {
                 kill_bomber(gamemap, currx + i, curry, map_w, map_h, &bomber_count);
+                damage_obstacle(obsmap, currx + i , curry);
               }
 
               if(currx - i >= minx) {
                 kill_bomber(gamemap, currx - i, curry, map_w, map_h, &bomber_count);
+                damage_obstacle(obsmap, currx + i , curry);
               }
 
               if(curry + i <= maxy) {
                 kill_bomber(gamemap, currx, curry + i, map_w, map_h, &bomber_count);
+                damage_obstacle(obsmap, currx + i , curry);
               }
 
               if(curry - i >= miny) {
                 kill_bomber(gamemap, currx, curry - i, map_w, map_h, &bomber_count);
+                damage_obstacle(obsmap, currx + i , curry);
               }
             }
 
@@ -340,6 +354,7 @@ int main( int argc, char **argv )
         omp sending_message;
 
         int miny, minx, maxy, maxx;
+        ob *target_bomber, *target_bomb;
 
         int object_count = 0, obj_arr_size = 50, targetx, targety;
         od *object_arr = (od *)malloc(25 * sizeof(od));
@@ -451,6 +466,23 @@ int main( int argc, char **argv )
 
             /// Obstacle map check
 
+            for(int xi = minx; xi <= maxx; xi++){
+              for(int yi= miny; yi <= maxy; yi++) {
+                ob *map_item = get_map_item(obsmap, xi, yi);
+                if(map_item->alive) {
+                  if(!(xi == (*it).position.x && yi == (*it).position.y)) {
+                    od obj_to_add;
+                    obj_to_add.type = map_item->type;
+                    obj_to_add.position.x = xi;
+                    obj_to_add.position.y = yi;
+                    object_arr[object_count] = obj_to_add;
+                    object_count++;
+                  }
+                }
+              }
+            }
+
+
 
             /// Bomb map check
             for(int xi = minx; xi <= maxx; xi++){
@@ -477,31 +509,34 @@ int main( int argc, char **argv )
             break;
           case(BOMBER_MOVE) :
 
-            // Check if bomber is dead or won
-
             targetx = m.data.target_position.x;
             targety = m.data.target_position.y;
+
+            target_bomber = get_map_item(gamemap, targetx, targety);
+            target_bomb = get_map_item(obsmap, targetx, targety);
 
             message.type = BOMBER_LOCATION;
             message.data.new_position.x = (*it).position.x;
             message.data.new_position.y = (*it).position.y;
 
-            if(targetx != (*it).position.x && targety != (*it).position.y) {
-              message.data.new_position.x = (*it).position.x;
-              message.data.new_position.y = (*it).position.y;
-            } else if(targetx == (*it).position.x) {
-              if(targety - (*it).position.y == 1 || targety - (*it).position.y == -1) {
-                if(targety >= 0 && targety <= map_h-1) {
-                  message.data.new_position.y = targety;
+            if(!target_bomber->alive && !target_bomb->alive) {
+               if(targetx != (*it).position.x && targety != (*it).position.y) {
+                message.data.new_position.x = (*it).position.x;
+                message.data.new_position.y = (*it).position.y;
+              } else if(targetx == (*it).position.x) {
+                if(targety - (*it).position.y == 1 || targety - (*it).position.y == -1) {
+                  if(targety >= 0 && targety <= map_h-1) {
+                    message.data.new_position.y = targety;
+                  }
+                }
+              } else if(targety == (*it).position.y) {
+                if(targetx - (*it).position.x == 1 || targetx - (*it).position.x == -1) {
+                  if(targetx >= 0 && targetx <= map_w-1) {
+                    message.data.new_position.x = targetx;
+                  }
                 }
               }
-            } else if(targety == (*it).position.y) {
-              if(targetx - (*it).position.x == 1 || targetx - (*it).position.x == -1) {
-                if(targetx >= 0 && targetx <= map_w-1) {
-                  message.data.new_position.x = targetx;
-                }
-              }
-            }
+            }       
 
             move_map_item(gamemap, (*it).position.x, (*it).position.y, BOMBER, message.data.new_position.x,  message.data.new_position.y);
 
@@ -606,4 +641,10 @@ int main( int argc, char **argv )
     delete [] obsmap[i];
   }
   delete [] obsmap;
+    
+  return 0;
 }
+
+
+// auto run for bomber
+// auto run for bomb
